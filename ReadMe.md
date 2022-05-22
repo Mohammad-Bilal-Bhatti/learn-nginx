@@ -164,3 +164,88 @@ $ systemctl status nginx
 $ systemctl start nginx
 $ systemctl enable nginx
 ```
+
+## Configurating Nginx
+
+terminology used in nginx configuration
+- context ~ scopes ~ block
+- directives
+
+
+directive is specific configuration options for example `server_name mydomain.com;`. it is generally in the form of key value pairs
+
+where context is considered as block or section in configuration files generally with in curly brases {}
+
+context has scopes, they can be nested, and apperently inherit from parent/outer scope
+
+context in nginx
+- main
+  - http
+    - server
+
+we have main context, inside of it we have http context and inside of it we have server context.
+
+in the main context we specify global directives that are applied to master process
+
+```conf
+user www www;
+worker_processes auto;
+error_log logs/error.log;
+pid logs/nginx.pid;
+
+events {
+  worker_connections: 4096;
+}
+
+http {
+  index index.html index.htm index.php;
+  include mime.types;
+
+  # virtual host
+  server {
+    listen 80;
+    server_name mydomain.com;
+    access_log /var/log/mydomain.com.access.log main;
+    root html;
+
+    location /some_path {
+      add_header header_name header_value;
+    }
+  }
+}
+```
+
+
+### Creating virtual host
+1. open configuration file `$ nano /etc/nginx/nginx.conf`
+2. remove everything and start writing from scratch
+
+```conf
+events {}
+http {
+
+  # types {
+  #   text/html html;
+  #   text/css css;
+  # }
+  
+  # instead of defining the mime types of the files by ourselfs we should include it
+  include mime.types;
+
+  server {
+    listen 80;
+    server_name *.domain.com;
+
+    root /sites/demo;
+  }
+}
+```
+3. reload the configuration `$ systemctl reload nginx`
+
+Note: if the domain name of the web server is not configured you can use ip address of the server as server_name
+
+Note: if someone requests for /images/cat.png the nginx by default search the file from root defined. If the root is defined as: /root/path then fully specified path will look like this: /root/path/images/cat.png
+
+Note: be aware of the wrong content type header when requesting for some resource. Mime-type error
+`$ curl -I http://localhost:80/styles.css`
+
