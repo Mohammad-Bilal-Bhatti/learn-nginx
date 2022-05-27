@@ -232,20 +232,110 @@ http {
   # instead of defining the mime types of the files by ourselfs we should include it
   include mime.types;
 
-  server {
+  # virtual host or server context
+  server { 
     listen 80;
     server_name *.domain.com;
 
+    # root path from which nginx will server the requests - interperting static requests
     root /sites/demo;
   }
 }
 ```
 3. reload the configuration `$ systemctl reload nginx`
 
+Note: '*.mydomain.com' will accept connections from any sub-domain eg. app.mydomain.com, portal.mydomain.com, gateway.mydomain.com
+
 Note: if the domain name of the web server is not configured you can use ip address of the server as server_name
 
 Note: if someone requests for /images/cat.png the nginx by default search the file from root defined. If the root is defined as: /root/path then fully specified path will look like this: /root/path/images/cat.png
 
-Note: be aware of the wrong content type header when requesting for some resource. Mime-type error
+Note: be aware of the wrong content type header when requesting for some resource. Mime-type error - A great way to debug the wrong content type headers
 `$ curl -I http://localhost:80/styles.css`
+
+show pre defined mimetypes to include
+`$ cat /etc/nginx/mime.types`
+
+
+nginx allows us pieces of configuration to include to our main configuration file.
+
+
+### Using Location Blocks
+
+- most used context in any of the nginx configuration
+- using location directives we define the behaviour of each URIs we define.
+- you can think of location blocks intercepting each incomming requests based on its value, and doing something other then just trying to serve a matching file relative to root dir.
+
+```conf
+server {
+  # prefix match
+  location /greet {
+    return 200 "hello from nginx";
+  }
+  # exact match
+  location = /exact {
+    return 200 "exact match path";
+  }
+  # REGEX match - case sensitive
+  location ~ /regex[0-9] {
+    return 200 "regix match path";
+  }
+  # REGEX match - case in-sensitive
+  location ~* /iregex[0-9] {
+    return 200 "regix match path - case insensitive";
+  }
+  # Preferential Prefix match
+  location ^~ /igreet2 {
+    return 200 "preferential greet match";
+  }
+}
+```
+
+- nginx assigns priority to the location blocks thats you configure based on modifiers, unlike the order in which you specify the location blocks. Regular expressions blocks have higher precedence than prefix match blocks.
+
+
+it is important! to understand the priority and order in which nginx matches the requests.
+
+1. exact match = uri
+2. Prefential Prefix match ^~ uri
+3. REGEX match ~* uri
+4. Prefix match uri
+
+### Nginx variables
+
+types of variables in nginx
+- variables we set eg. `set $var 'something'`
+- variables by nginx eg. `$http $uri $args`
+
+you can see the list of all variables provided by the nginx from the nginx documentation. https://nginx.org/en/docs/varindex.html
+
+
+/inspect?name=ali
+
+```conf
+server {
+
+  # checks static API key
+  if ($arg_apikey != 1234) {
+    return 401 "incorrect api key";
+  }
+
+  set $weekend 'No';
+
+  # check if weekend
+  if ( $date_local ~ 'Saturday|Sunday' ) {
+    set $weekend 'Yes';
+  }
+
+  location /is_weekend {
+    return 200 "$weekend";
+  }
+
+  location /inspect {
+    return 200 "hostname: $host \npath: $uri \nquery: $args \nindividual arg: $arg_name";
+  }
+}
+```
+
+NOTE: using conditionals inside location block is highly discouraged. Because it leads to indeterministic
 
