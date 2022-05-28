@@ -339,3 +339,384 @@ server {
 
 NOTE: using conditionals inside location block is highly discouraged. Because it leads to indeterministic
 
+### Rewrites or Redirects
+
+for redirects or rewrites we use following directives
+- `rewrite pattern-match newURI`
+- `return status newURI`
+
+NOTE: all 3xx status are redirects of some sort
+
+eg. return 307 /some/path;
+eg. return 307 /thumb.png;
+
+
+```conf
+
+server {
+
+  root /sites/demo;
+
+  # the ^ here represents REGEX pattern starting with
+  # writing rewrites before matching any location
+  # (\w+) represents REGEX capture groups that we get by $1
+  rewrite ^/user/(\w+) /greet/$1; 
+  rewrite ^/greet/john /thumb.png;
+
+  # specifies no more rewrites after this.
+  rewrite ^/greet/new /hello.png last;
+
+  location /logo {
+    return 307 /thumb.png;
+  }
+  location = /greet/jhon {
+    return 200 "Hello Jhon";
+  }
+}
+
+```
+
+redirects tells where to go instead. eg. 307 means temporarly redirected.
+
+NOTE: in rewrites request is written internally in contrast to the redirects 
+
+NOTE: when a uri is re-written it also gets re-eveluated by nginx as completely new request. rewrites has some sort of performance issues because it takes some extra resources.
+
+
+Another important and powerfull feature of rewrites is the ability of capture certain paths of the original URI using std regular expression capture groups. () as $1 or $2
+
+
+### Try-Files & Named Locations
+
+- techanically 3rd type of redirect directive
+- could be used in server context or location context
+
+```conf
+server {
+
+  # will be applied to all files...
+  # this directive intercepts every requests and checks for the paths in cronological order. If it founds the path relative to the root it sends it to the client.
+  try_files path1 path2 final;
+  
+  
+  location / {
+    try_files path1 path2 final;
+  }
+}
+```
+
+nginx will find the files path relative to the root directory with the final argument as redirect
+
+
+- when try_files reaches its last path it is then treated as internal rewrite.
+- we can use nginx variables with try_files directive as `try_files $uri /404`;
+- try_files will only check the paths relative to the root directive
+
+
+```conf
+server {
+
+  try_files $uri /404;
+
+  location = /404 {
+    return 404 "sorry, that file could not be found.";
+  }
+}
+```
+
+Named location means assigning a name to the location context and telling a directive such as try_files to use its name instead of its location path ensureing no re-eveluation.
+
+```conf
+server {
+  try_files $uri @404;
+  location @404 {
+    return 404 "No file found with that name";
+  }
+}
+``` 
+
+### Logging
+
+nginx provides 2 log types
+- Error logs (Failed logs, that didn't happened as expected)
+- Access Logs
+
+- Logs generally allows us track errors and identify malicious users.
+- We can also add resource specific logs.
+
+by default nginx logs are stored at `/var/log/nginx/`
+
+a properly handled 404 can not create entry in error.log
+
+- we can also enable or disable logging
+- we can use miliple logs directive inside any context.
+
+```conf
+server {
+  listen 80;
+  root /sites/demo;
+  location /secure {
+    access_log /var/log/nginx/secure.access.logs;
+    # disable logs
+    access_log off;
+    return 200 "Welcome to the secure area";
+  }
+}
+```
+
+for more advance we generally specify the format of the logs entries, gzip, flush-time, conditions etc...
+
+### Inheritance and Directive Types
+
+nginx inherits configuration from its parent block or scope
+
+eg.
+```conf
+server {
+  root /sites/demo;
+  location {
+    # inherited root
+    # root /sites/demo;
+  }
+}
+```
+
+in nginx inheritance is not always straight forward and will vary depends upon the directive being used.
+
+Types of directives:
+- Standard Directive
+- Array Directive
+- Action Directive
+
+```conf
+#########################
+# (1) Array Directive
+#########################
+# Can be specified multiple times without overriding a previous setting
+# Gets inherited by all child contexts
+# Child context can override inheritance by re-declaring directives
+access_log /var/log/nginx/access.log;
+access_log /var/log/nginx/access.log custom_format;
+
+http {
+
+  server {
+    listen 80;
+    server_name site2.com
+
+    ##########################
+    # (2) Standard Directive
+    ##########################
+    # Can only be declared once. A second declaration overrides the first
+    # Gets inherited by all child contexts
+    # Child context can override inheritance by re-declaring directives;
+    root /sites/site2;
+
+    # Completely overrides inheritance from (1)
+    access_log off;
+
+    location /images {
+
+      try_files $uri /stock.png;
+    }
+
+    location /secret {
+      ########################
+      # (3) Action Directive
+      ########################
+      # Invokes an action such as a rewrite or redirect
+      # INheritance does not apply as the request is either stopped (redirect/response) or re-evaluated (rewrite)
+      return 403 "You do not have permission to view this.";
+    }
+
+  }
+}
+```
+
+### PHP Processing
+
+
+up to now we configured nginx to server static files by leaving the handling of the files by client or browser based on its mime type
+
+
+as we know nginx is n't able to embed server side language processors. Inorder to achieve that we use stand alone php servers like php-fpm to wihich nginx parse the request for processing. and get parsed response and send it to client.
+
+
+Install php latest stable release
+```sh
+$ apt-get update
+$ apt-get install php-fpm
+
+# list systemd units
+$ systemctl list-units | grep php
+```
+
+```conf
+
+user www-data;
+http {
+
+  server {
+    listen 80;
+    root /sites/demo;
+    index index.php index.html;
+
+    # will serve the static files
+    location / {
+      try_files $uri $uri/ =404;
+    }
+    location ~\.php$ {
+      # pass php requests to the php-fpm server
+      # using fast CGI protocol
+      include fastcgi.conf;
+      fastcgi_pass unix:/run/php/php7.1-fpm.sock
+    }
+  }
+
+}
+```
+
+Fast cgi portocol is the protocol like http but it is used to transfer binary data. we can use standard http protocol but fast-cgi is relatively faster
+
+A unix socket is created by php-fpm. Think of the socket as http port a file on which a server can listen for binary data.
+
+
+```sh
+$ find / -name *fpm.sock
+$ echo '<?php phpinfo(); ?>' > /sites/demo/info.php
+```
+
+NOTE: check the error.log if something went wrong.
+
+```sh
+# check process full information
+$ ps aux | grep php
+$ ps aux | grep nginx
+```
+
+### Worker processes
+
+check system processes
+```sh
+$ systemctl status nginx
+$ ps aux | grep nginx
+```
+
+master process is the actual server instance, then this master process created worker processes for processing response.
+
+to change the no of worker processes write following line to the main context.
+```conf
+worker_processes 2;
+
+# will set worker processes to the number of cores available at host machine
+# worker_processes auto;
+```
+
+IMPORTANT: 99% of the time we set the worker processes equal the no of cores available to the host machine.
+
+increasing the number of worker processes in hope that our server will perform better
+
+
+the worker process handles the requests asynchronously means as far as the hardware is capable of. 
+
+
+to get the number of cores available run the following command
+```sh
+$ nproc
+```
+
+to get more detailed information of cpu
+```sh
+$ lscpu
+```
+
+setting no of connection that each worker process can handle
+
+```conf
+user nginx;
+pid /var/run/nginx.pid;
+worker_processes auto;
+events {
+  worker_connections 1024;
+}
+http {
+  ...
+}
+
+ ```
+
+check the file limit that the OS can handle
+```sh
+$ ulimit -n
+```
+
+max connections = worker_processes * worker_connections
+
+
+### Buffers & Timeouts
+
+```conf
+user nginx;
+worker_processes auto;
+events {
+  worker_connections 1024;
+}
+http {
+  include mime.types;
+
+  # Buffer size for POST submissions
+  client_body_buffer_size 10k;
+  client_max_body_size 8m;
+
+  # Buffer size for Headers
+  client_header_buffer_size 1k;
+
+  # Max time to recieve client headers/body
+  client_body_timeout 12;
+  client_header_timeout 12;
+
+  # Max time to keep a connection open for
+  keepalive_timeout 15;
+
+  # Max time for the client accept/recieve a response
+  send_timeout 10;
+
+  # skip buffering for static files
+  sendfile on;
+
+  # optimize sendfile packets
+  tcp_nopush on;
+
+  server {
+    ...
+  }
+}
+```
+
+
+Buffering hear means when nginx worker process reads data into memory before writing it to its destination
+
+Timeouts simply means cutoff time for the particular event eg. if recieving a request from client stops for some reason in the middle. Timeouts helps our server to stop endless stream of data to recieve in case someone attacks our server.
+
+buffer_directive 100 - bytes
+buffer_directive 10k - kilobytes
+buffer_directive 10m - megabytes
+
+if incase POST request have body of size more than 8m the server will sent 413 'Request Entity too large' 
+
+timeout_directive 30 - milliseconds
+timeout_directive 30s - seconds
+timeout_directive 30m - minutes
+timeout_directive 30h - hours
+timeout_directive 30d - days
+
+
+### Adding Dynamic Modules
+
+[PAGESPEED]
+[SSL]
+[NGINX]
+
+the difference between the static and dynamic module is that dynamic module are loaded on runtime while static modules are loaded at once 
+
+Dynamic modules are very useful for small but useful tasks such as resizing imaging before sending it to client. etc...
