@@ -720,3 +720,272 @@ timeout_directive 30d - days
 the difference between the static and dynamic module is that dynamic module are loaded on runtime while static modules are loaded at once 
 
 Dynamic modules are very useful for small but useful tasks such as resizing imaging before sending it to client. etc...
+
+## Performance
+
+### Headers & Expires
+
+- setting the response expire headers tells the client(borwser) how long it can cache the response for. eg. logos, assets, styles-sheet etc...
+
+```conf
+
+location = /thumb.png {
+  add_header my_header "Hello world";
+  # telling the receiving client that this resource or response can be cached in any way
+  add_header Cache-Control public;
+  # older version of above
+  add_header Pragma public;
+  # tells that response can vary based on the value of the request header 'Accept-Encoding'
+  add_header Vary Accept-Encoding;
+  # set the expire header
+  expires 60m; # m = minute; M = month; h = hour
+}
+
+# a practical example
+location ~* \.(css|js|jpg|png)$ {
+  access_log off;
+  # your cache control headers
+}
+
+```
+
+```sh
+# check headers with curl
+$ curl -I http://localhost:80/thumb.png
+```
+
+
+
+### Compressed Response with gzip
+
+- extends the delivery of static resources one step further using compressed response
+
+```conf
+http {
+  # step 1. enable compression on http module
+  # inherited in the child contexts
+  gzip on;
+  gzip_comp_level 4; # range from 0-9 higher the number greater the compression hence smaller size but more server resources are required.
+  gzip_types text/css text/javascript;
+
+  location ~* (css|js|jpg|png)$ {
+
+    add_header Cache-Control public;
+    add_header Pragma public;
+    # now this header will triger the response being compressed or not!
+    add_header Vary Accept-Encoding;
+    expires 60m;
+  }
+
+}
+
+```
+
+```sh
+# debug the response by sending "Accept-Encoding" header
+$ curl -I -H "Accept-Encoding: gzip, deflate" http://localhost:80/styles.css
+
+# check the compressed response - terminal will complain
+$ curl -H "Accept-Encoding: gzip, deflate" http://localhost:80/styles.css
+
+```
+
+
+### FastCGI cache
+
+- micro cache is simple server side cache that stores dynamic language responses inorder to minimize server load.
+
+           [micro]
+           [cache]
+              |
+[browser]---[nginx]---[php]---[DB]
+
+- cache dynamic content will dratically increase the proformace of your application but it is not always simple and straight forward to implement.
+
+```conf
+
+http {
+
+  # configure microcache fastcgi
+  # tells the path to store the cache entries
+  # levels defines the depth of the cache being saved
+  # in-active sets how long a cache is stored until the last time it accessed
+  fastcgi_cache_path /tmp/nginx_cache levels=1:2 keys_zone=ZONE_1:100m incative=10m;
+  # cache naming convention/format which is then being hashed eg. md5-hash
+  fastcgi_cache_key "$scheme$request_method$host$request_uri";
+
+  # add custom header that tells the response is server from cache or not
+  add_header X-Cache $upstream_cache_status;
+
+  server {
+
+    listen 80;
+    server_name mydomain.com;
+
+    root /sites/demo;
+    index index.php index.html;
+
+    # Adding cache exceptions (important part of dynamic content cashing)
+    # Cache by default
+    set $no_cache 0;
+
+    # if ($request_method = POST) {
+    #   # add no cache for POST requests
+    # }
+
+    # expecting from query params to bypass cache
+    if ($arg_skipcache = 1) {
+      set $no_cache 1;
+    }
+
+    location / {
+      try_files $uri $uri/ =404;
+    }
+
+    # files ending with php
+    location ~\.php$ {
+      include fastcgi.conf;
+      fastcgi_pass unix:/run/php/php7.1-fpm.sock;
+
+      # enable cache
+      fastcgi_cache ZONE_1;
+      fastcgi_cache_valid 200 60m;
+      fastcgi_cache_valid 400 10m;
+      # bypass or skip cache and donot save response to cache respectively
+      fastcgi_cache_bypass $no_cache;
+      fastcgi_no_cache $no_cache;
+    }
+
+  }
+
+}
+
+```
+
+level parameter defines the logic for splitting of the cache entries
+eg. 1:2 represents an entries like this.
+
+2 [last digit]
+  0b [last 2 digits]
+    342fe233ec1400d40b2 [md5 hash]
+4
+  cc
+    3d323acf3232dac3cc4
+
+keys_zones defines the name of the zone with size of the cache zone 
+
+inactive defines how long the entries are keep cached until its last accesses [default=10m]
+
+$scheme = https
+$request_method = GET
+$host = domain.com
+$request_uri /blog/article
+
+#### Apache Bench
+Apache Bench is the simple Http server benchmarking tool
+
+```sh
+# install on debian
+$ apt install apache2-utils
+# install on centos
+$ yum install httpd-tools
+
+# show the tool help
+$ ab --help
+
+$ ab -n 100 -c 10 http://localhost
+```
+
+```sh
+$ curl -I http://localhost:80/?skipcache=1
+```
+
+NOTE: we can add this exception of not to cache for anything like logged-in areas of your site, live-data etc...
+
+NOTE: caching server site content could be the single bigges performance enhancement that can be added to your site.
+
+
+### Http 2
+
+- as of version 1.9.5 nginx include new http 2 module
+
+Difference between http2 and http1.1
+- http2 is binary protocol where http 1.1 is textual protocol
+- Compressed headers
+- Persistent connections
+- Multiplex Streaming (html,css,js could be combined into single stream of binary data)
+- Server push
+
+NOTE: opening a new connection is a time consuming task, that is why most of the developers concatinate multipe javascript or css files into single file.
+
+How many number of connections could be open with perticular domain
+
+
+REMEMBER: http 1.1 process simplex streaming(one connection handles one request)
+
+for a simple page an average 15 connection is common. But it also decreses the browser capability of handling that much connections.
+
+
+- enable and configure HTTP2
+- requirement for Http2 is SSL or HTTPs
+
+- we can configure and use 3rd party verdors certificates like lets-encrypt
+
+
+generating new self signed certificate
+```sh
+$ mkdir /etc/nginx/ssl
+# making a new cerfificate request of standard x509 having validy of 10 days, nodes which allows us to leave a pass phrase for the key file, generate a new private key
+$ openssl req -x509 -days 10 -nodes -newkey rsa:2048 -keyout /etc/nginx/ssl/self.key -out /etc/nginx/ssl/self.crt 
+```
+
+```conf
+
+http {
+
+  include mime.types;
+
+  server {
+    # setting up ssl and http2 modules
+    listen 443 ssl http2;
+
+    ssl_certificate /etc/nginx/ssl/self.crt;
+    ssl_certificate_key /etc/nginx/ssl/self.key;
+
+    server_name localhost;
+    root /sites/demo;
+
+    index index.php index.html;
+
+    location / {
+      try_files $uri $uri/ index.html;
+    }
+
+    location = /index.html {
+      # server push following resources
+      http2_push /style.css;
+      http2_push /thumb.png;
+    }
+
+  }
+
+}
+
+```
+
+### Server push of HTTP2
+
+
+a terminal based http2 client for debugging the response, because native browser inspecting network tab is not capable enough to show http2 based request-response 
+```sh
+$ apt install nghttp2-client
+
+# n = discard the response from saving
+# y = ignore the self signed sertificate
+# s = print statistics
+# n = also get linked resources
+$ nghttp -nysn https://localhost
+```
+
+## Security
+
