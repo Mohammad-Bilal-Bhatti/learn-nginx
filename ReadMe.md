@@ -989,3 +989,256 @@ $ nghttp -nysn https://localhost
 
 ## Security
 
+### HTTPs (SSL)
+
+the first step in enabling ssh is providing some kind of fallback handler for in secure http connection
+
+By default the http request goes to port 80 if port is not defined in the url
+
+https now a days becomes standard and there is no legetimic reason of using http any longer
+
+```conf
+
+http {
+
+  # create a virtual server for redirecting http traffic to https  
+  server {
+    listen 80;
+    server_name mydomain.com;
+    return 301 https://$host$request_uri;
+  }
+
+  server {
+    listen 443 ssl http2;
+    server_name mydomain.com;
+
+    root /sites/demo;
+    index index.html;
+
+    ssl_certificate /etc/nginx/ssl/self.crt;
+    ssl_certificate_key /etc/nginx/ssl/self.key;
+
+    # Disable SSL
+    ssl_protocols TLSv1 TLSv1.1 TLS1.2;
+
+    # Optimise cipher suits
+    # algorithms names seperated by : with indication ! to specify not to use
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers ECDH+AESGCM:ECDH+AES256:ECDH+AES128:DH+3DES:!ADH:!AECDH:!MD5;
+
+    # Enable DH Params - allows server to exchange keys btw server and client with perfect secriticty - very good addition to enhance security
+    ssl_dhparam /etc/nginx/ssl/dhparam.pem;
+
+    # Enable HSTS - Strict transport security - header that tells the client not to load content over http
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # SSL sessions - cache handshake data for set ammount of time - imporves performance - default is 'builtin' - only limited to worker process
+    ssl_session_cache shared:SSL:40m;
+    ssl_session_timeout 4h;
+    ssl_session_tickets on;
+
+
+    location / {
+      try_files $uri $uri/ =404;
+    }
+  }
+
+}
+
+```
+
+generating dh param file
+```sh
+$ openssl dhparam 2048 -out /etc/nginx/ssl/dhparam.pem
+
+$ systemctl reload nginx
+```
+
+
+SSL is an older version of securing website. TSL is the newer and better version to to same function more securely and reliabily.
+
+SSL(secure socket layer) is outdated and replaced by TSL(transport security layer)
+
+Most important list of increase security of your nginx servers
+- Disable SSL use TLS only
+- Optimise Cipher Suits
+- Enable DH params
+- Enable HSTS
+- Cache SSL sessions
+
+### Rate Limiting
+
+- rate limiting could be considered as traffic lights for incomming requests.
+- rate limiting is the server implies other then simply limiting manageing incomming connection for specific reasons.
+- Common Reasons
+  - Security - Brute Force Protection
+  - Reliability - Prevent Traffic Spikes
+  - Shaping - Service priority based on tier eg. download servers
+
+
+we will use SIEGE a new command line tool for testing load on a server ruther then banchmarking the server (minor difference btw the two)
+
+```sh
+# install the required software
+$ apt install siege
+
+# v = verbose
+# r = run x tests
+# c = of y concurrent connections
+$ siege -v -r 2 -c 5 http://localhost/thumb.png
+
+```
+
+
+```conf
+
+http {
+
+  # Define limit zone
+  # here rate limiting is applied on requestor ip address
+  limit_req_zone $binary_remote_addr;
+  # here rate limiting is applied on server name
+  # limit_req_zone $server_name;
+  # here rate limiting is applied on requesting uri
+  # 60 requests per minute = 1 request per second
+  # NOTE: this doesn't means that server can accept 60 requests at onces and then no more for the remainder of the minute - but rather it set the frequency of that time frame
+  limit_req_zone $request_uri zone=MYZONE:10m rate=60r/m;
+
+  # setting burst limit - changes the behaviour of imediately rejecteing the requests to allow to x number;
+  limit_req_zone $request_uri zone=MYZONE:10m rate=1r/s burst=5;
+
+
+  server {
+    listen 80;
+
+    location / {
+      limit_req zone=MYZONE;
+      # or we can apply burst here
+      # nodelay is optional param
+      # limit_req zone=MYZONE burst=5 nodelay;
+      try_files $uri $uri/ =404;
+    }
+  }
+
+}
+
+```
+
+### Baisc Auth
+
+let say you have some area of your web site that requires only authorized person to access eg. /admin
+
+basic auth provides simple user-name and password layer to any part of your site.
+
+```sh
+$ apt install apache2-utils
+# or
+$ yum install httpd-tools
+
+# c = we want written password written to a file for a given user
+$ htpasswd -c /etc/nginx/.htpasswd user1
+```
+
+
+```conf
+
+http {
+  server {
+    listen 80;
+
+    location /secure {
+      auth_basic "Secure Area";
+      auth_basic_user_file /etc/nginx/.htpasswd;
+    }
+  }
+}
+
+```
+
+### Hardening NGINX
+
+in cyber world attacks are common and sooner or later venulabilites emerges as we move on. It is good practice to adopt regular security updates to your server inorder to secure it from new velunabilities. 
+
+
+```sh
+$ nginx -v
+$ apt update
+$ apt upgrade
+```
+
+we can disable version information of our nginx server by
+
+```conf
+
+http {
+
+  # disable nginx version information in resp
+  server_tokens off;
+
+  server {
+    # disable click clickjecking
+    add_header X-Frame-Options "SAMEORIGIN";
+    # enable cross site protection
+    add_header X-XSS-Protection "1; mode=block";
+
+  }
+
+  ...
+}
+
+```
+
+- last step is to removing unused or dangerous nginx modules that includes potential security risks
+
+
+### LetsEncrypt SSL Certificates
+
+- free, automated, and open sertificate authority.
+- encourages the use of https over http
+
+in order to generate certificate and automate the re-newal we use a tool called certbot.
+
+Let's Encrypt + CertBot + Nginx =  Love
+
+NOTE: Let's encrypt won't issue certificate for ip addresses - a valid domain is required
+
+1. install certbot
+
+```sh
+$ goto certbot.eff.org
+# selecte relavent server software and the currosponding OS
+
+# Follow the instruction appeared
+$ apt update
+$ apt install software-properties-common
+$ apt add-repository ppa.certbot/certbot
+$ apt update
+$ apt install python-certbot-nginx
+
+# check certbot is installed or not.
+$ certbot --help
+```
+
+```sh
+# cerbot will inspect your nginx.conf file and enable ssl by its own
+$ certbot --nginx 
+
+# list generated certificates
+$ ls /etc/letsencrypt/yourdomain.com
+
+# check your nginx.conf file
+# here you see list of lines added by certbot ending with a comment 'managed by CertBot'
+$ cat /etc/nginx/nginx.conf
+
+# renew certificates when required
+$ certbot renew
+
+# force renewal
+$ certbot renew --dry-run
+
+# a simple cron job that try to renew certificate daily if expired
+$ crontab -e
+    ADD THE FOLLOWING LINE
+    @daily certbot renew
+
+```
