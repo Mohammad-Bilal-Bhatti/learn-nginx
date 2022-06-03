@@ -1242,3 +1242,290 @@ $ crontab -e
     @daily certbot renew
 
 ```
+
+## Reverse proxy and load balancing
+
+load balancing and reverse proxy are the features that nginx provides as a web server.
+
+```conf
+events {}
+
+http {
+
+  server {
+    listen 8088;
+
+    location / {
+      return 200 "Hello from nginx";
+    }
+  }
+}
+
+```
+
+```sh
+$ nginx -c /path/to/nginx/conf
+```
+
+create php server
+```sh
+# by default will server the directory in which it runs from
+$ php -S localhost:9999;
+
+$ php -S localhost:8888 file.txt
+```
+
+### Nginx as a reverse proxy
+
+
+A reverse proxy in simple words acts as an intermediatery between client(browser) and the resource(servers).
+
+                nginx
+[client] -- [reverse-proxy] -- [server]
+
+A reverse proxy acts as an agent that interprets the client requests, passes them to required server (php, node, .net, ruby) and get the response and sent back (reverse) it to client.
+
+all the request will go to and from the reverse proxy (nginx) server.
+
+
+```conf 
+
+server {
+  listen 8088;
+
+  location / {
+    return 200 "hello from NGINX";
+  }
+
+  # trailing slash '/' is important to add. 
+  # because if we won't include it the whole location path '/php' would be visible to the end.
+  # if we don't specify the trailing '/' nginx will assume the original request path.
+  # we can create different use cases for different purpose but it is recommended to use trailing slash because it is less confusing
+  location /php {
+    proxy_pass 'http://localhost:9999/';
+  }
+
+  # a completely remote site as we are visiting original website directly
+  location /nginxorg {
+    proxy_pass 'https://nginx.org/';
+  }
+
+}
+
+```
+
+there is no limitation or restriction to the proxy server(s) being on the same system 
+
+
+show_request.php
+```php
+<?php
+  echo 'Path: ' . $_SERVER['REQUEST_URI']; 
+>
+```
+
+```sh
+# start the server which will serve the following file
+$ php -S localhost:9099 show_request.php
+```
+
+if we curl the server
+```sh
+$ curl http://localhost:8088/php/some/path
+```
+
+`//some/path` will be recieved to the receiving server. Path after what is defined in nginx conf. Don't worry the double trailling slash will be normalized on the server and should not cause any issue.
+
+another important expect of using nginx as a reverse proxy is passing custom header either to our proxy server or to the client.
+
+```conf 
+
+  server {
+    listen 8088;
+
+    location /php {
+      # sent it to the client only
+      add_header proxied nginx;
+      # sent it to the proxied server only
+      proxy_set_header proxied nginx;
+      proxy_pass 'http://localhost:4000/';
+    }
+  }
+
+```
+
+show_request.php
+```php
+<?php
+  ehco "display php headers: " . var_dump(getallheaders());
+
+>
+
+```
+
+### Load Balancer
+
+nginx make it easy to configure and robust load balancer.
+                      / --[server-B]
+                     / 
+[client] ---- [load-balance] ---- [server-A]
+                    \
+                      \ --[server-C]
+
+A load balancer should achieve 2 main objectives
+1. the ability to distribute request to multiple servers (reducing the load of individual servers)
+2. to provide redudency (for what ever reason if any of our server fails nginx automatically redirects traffic to other servers)
+
+
+```php
+echo "Hello from 1st";
+```
+
+```sh
+# Starting multiple servers
+$ php -S localhost:9001 first.php
+$ php -S localhost:9002 second.php
+$ php -S localhost:9003 third.php
+```
+
+test the running servers individually
+```sh
+curl http://localhost:9001
+```
+
+load balancing
+
+```conf
+
+events {}
+
+http {
+
+  # grouping the servers together
+  # the default algorithm that is used in load balancing is round robin
+  upstream php_servers {
+    server localhost:9001;
+    server localhost:9002;
+    server localhost:9003;
+  }
+
+  server {
+    listen 8088;
+
+    location / {
+      proxy_pass http://php_servers;
+    }
+
+  }
+}
+
+```
+
+```sh
+$ curl http://localhost:9001
+
+# a quick way
+$ while sleep 0.5; do curl http://localhost:8088; done
+```
+
+we have to create up-stream context/block that adds several servers with the ability to add some options to it - think of it as named collection of servers that shared commonality - in most of the time serves the same content
+
+
+### Load Balancer Options
+
+load balance based on differenct criteria
+
+- sticky sesstions - ip hash
+    here connected clients are stick to the single server always. Request is bound to user ip address and always when possible proxy to the same server. Usefull for maintaining user login sessions. Very usefull for loadbalancing websites or services that rely heavily on server sessions or session state.
+- least connections 
+    distribute load based on least number of conections intellegently
+
+```conf 
+http {
+
+  upstream php_servers {
+    # defining the load-balance algorithm
+    ip_hash;
+    # least_conn;
+    server localhost:9001;
+    server localhost:9002;
+    server localhost:9003;
+  }
+
+}
+```
+
+### Adding an NGINX init service
+download the inti script form [here](https://wiki.nginx.org/initScripts) - download the init script of your installed OS
+
+```sh
+$ cd /etc/init.d/
+$ wget url-here
+
+$ sudo chmod +x nginx
+# load the init script
+$ update-rc.d -f nginx defaults
+```
+
+### Geoip
+
+0. enable geoip module by `--with-http_geoip_module`
+1. goto: dev.maxmind.com
+2. download the geolite lagacy free downloadable database for country and city (camptable with nginx)
+3. extract the downloadable resources to /etc/nginx/geoip
+
+```conf 
+
+http {
+
+  # geo ip confi
+  geoip_country /etc/nginx/geoip/GeoIp.dat;
+  geoip_city /etc/nginx/geoip/GeoLiteCity.dat;
+
+  server {
+    listen 8088;
+
+    # list available variables that could be used with this.
+    # https://nginx/org/en/docs/http/ngx_http_geoip_moduel.html
+
+    location /geo-country {
+      return 200 "You are from $geoip_country_name";
+    }
+
+    location /geo-city {
+      return 200 "You are from $geoip_city";
+    }
+
+  }
+}
+```
+
+### Video streaming
+
+0. add module `--with-http_mp4_module`
+
+
+```conf
+
+  server {
+    listen 8088;
+
+    location ~ \.mp4$ {
+      root /sites/downloads;
+      mp4; # define the mp4 module
+      # control variables
+      mp4_buffer_size 4M;
+      mp4_max_buffer_size 10M;
+    }
+  }
+
+```
+
+
+### Resources
+- https://nginx.org/en/docs
+- https://nginx.com/resources/wiki/start/topics/tutorials/config_pitfalls/
+- https://digitalocean.com/community/search?q=nginx
+- https://codex/wordpress.org/Nginx
+- https://github.com/fcambus/nginx-resources
+
