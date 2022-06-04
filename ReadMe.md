@@ -1,11 +1,13 @@
 # Nginx Fundamentals
 
-Metadata
+Course Metadata
 - Course started date: 22-May-2022 
-- Course ended date: 
-- Instructor: 
-- Source: Udemy
+- Course ended date: 04-Jun-2022
+- Instructor: Ray Viljoen
+- Source: Udemy-Free
 
+
+About Nginx
 - created in 2004
 - nginx is the web server developed by Igor Sysoev, CTO and Co-Founder, NGINX Inc.
 - fustrated with apache that should capable enough of handling 10k requests 
