@@ -264,6 +264,19 @@ The listen directive can be set to
 - alone port which listens to every interface on that port
 - path to UNIX socket
 
+When incomplete listen directive
+- a block with no listen directive uses the value 0.0.0.0:80
+- a block set to an ip-address with no port will listen to xxx.xxx.xxx:80
+- a block set to port 8888 only will listen to 0.0.0.0:8888
+
+
+Nginx evaluates the `server_name` directive by following formula
+- nginx first tries to find the server block with a server name matches the value in the "HOST" header of the request exactly
+- find a server block with the `server_name` matching using a leading wild-card (indicated by the * in the begining of the name in the config)
+- if no match is found using a leading wild-card, then nginx will look for the `server_name` that matches using trailing wildcard
+- if no match is found using a trailing wildcard, Nginx then evaluates server blocks that define the server_name using regular expressions (indicated by a ~ before the name)
+- If no regular expression match is found, Nginx then selects the default server block for that IP address and port.
+
 
 nginx allows us pieces of configuration to include to our main configuration file.
 
@@ -273,6 +286,22 @@ nginx allows us pieces of configuration to include to our main configuration fil
 - most used context in any of the nginx configuration
 - using location directives we define the behaviour of each URIs we define.
 - you can think of location blocks intercepting each incomming requests based on its value, and doing something other then just trying to serve a matching file relative to root dir.
+
+
+syntax:
+```conf
+
+location optional_modifier location_match {
+
+}
+```
+
+#### Options - optional_modifier
+- (none): The location is interpreted as a prefix match. This means that the location given will be matched against the beginning of the request URI to determine a match.
+- =: This block will be considered a match if the request URI exactly matches the location given.
+- ~: This location will be interpreted as a case-sensitive regular expression match.
+- ~*: The location block will be interpreted as a case-insensitive regular expression match.
+- ^~: If this block is selected as the best non-regular expression match, regular expression matching will not take place.
 
 ```conf
 server {
@@ -429,6 +458,8 @@ nginx will find the files path relative to the root directory with the final arg
 - when try_files reaches its last path it is then treated as internal rewrite.
 - we can use nginx variables with try_files directive as `try_files $uri /404`;
 - try_files will only check the paths relative to the root directive
+
+> NOTE: `try_files` is an internal requests like. error_page, index, and random_index.
 
 
 ```conf
