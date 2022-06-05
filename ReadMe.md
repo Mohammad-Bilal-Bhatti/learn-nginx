@@ -258,6 +258,12 @@ Note: be aware of the wrong content type header when requesting for some resourc
 show pre defined mimetypes to include
 `$ cat /etc/nginx/mime.types`
 
+The listen directive can be set to
+- an ip-address/port combo
+- alone ip-address which listens on default port 80
+- alone port which listens to every interface on that port
+- path to UNIX socket
+
 
 nginx allows us pieces of configuration to include to our main configuration file.
 
@@ -340,6 +346,16 @@ server {
 ```
 
 NOTE: using conditionals inside location block is highly discouraged. Because it leads to indeterministic
+
+#### Commonly used request variables
+- $host
+- $http_host
+- $https | "on" if connection operates in SSL/TSL mode, or an empty string otherwise
+- $request_method | request action verb eg. GET, POST, PUT, DELETE, PATCH ...
+- $request_uri | full original request URI with arguments
+- $scheme | request scheme http/https
+- $server_name | name of the server which accepted the request
+- $server_port | port of the server which accepted the request
 
 ### Rewrites or Redirects
 
@@ -1530,4 +1546,7 @@ http {
 - https://digitalocean.com/community/search?q=nginx
 - https://codex/wordpress.org/Nginx
 - https://github.com/fcambus/nginx-resources
-
+- https://vishnuch.tech/nginx-cheatsheet
+- https://lzone.de/cheat-sheet/nginx
+- https://www.docdroid.net/ooD0qnV/nginx-cheat-sheet-pdf
+- https://github.com/SimulatedGREG/nginx-cheatsheet
